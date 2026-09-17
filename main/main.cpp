@@ -443,6 +443,10 @@ extern "C" void app_main(void)
                 serial::write(input);
                 serial::write("\r\n");
             }
+            // A /new or /stop from just before this input is not meant for its reply
+            if (poll_interrupt() == Interrupt::New) {
+                new_conversation();
+            }
             if (respond(input, to_api) == Interrupt::New) {
                 new_conversation();
             }
