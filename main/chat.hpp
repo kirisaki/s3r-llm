@@ -11,6 +11,8 @@ enum class Speaker
 {
     User,
     Assistant,
+    // Notes from the device itself, not part of the conversation
+    System,
 };
 
 // Clears the log. display::init() must have been called.

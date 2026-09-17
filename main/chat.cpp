@@ -15,6 +15,7 @@ constexpr int LINE_GAP = 2;
 constexpr int SPEAKER_GAP = 3;
 constexpr uint16_t USER_COLOR = display::rgb565(0, 200, 255);
 constexpr uint16_t ASSISTANT_COLOR = display::WHITE;
+constexpr uint16_t SYSTEM_COLOR = display::rgb565(120, 120, 120);
 constexpr char USER_PREFIX[] = "> ";
 
 // Top of the line being written
@@ -119,7 +120,7 @@ void begin(Speaker speaker)
     empty = false;
 
     const bool user = speaker == Speaker::User;
-    color = user ? USER_COLOR : ASSISTANT_COLOR;
+    color = user ? USER_COLOR : speaker == Speaker::System ? SYSTEM_COLOR : ASSISTANT_COLOR;
     if (user) {
         for (const char *p = USER_PREFIX; *p; p++) {
             put(*p);

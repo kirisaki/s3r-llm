@@ -13,6 +13,21 @@ the last few turns, which takes it a few seconds. Pressing the screen or
 typing `/new` starts a new conversation, and `/stats` shows token counts and
 speed after each reply.
 
+It can also be reached over WiFi. `/wifi <ssid> <password>` on the serial port
+stores the credentials on the device (`/wifi off` forgets them, `/wifi` shows
+the address), and then:
+
+```sh
+curl -N -d 'Hello!' http://s3r-llm-39a8.local/chat    # the reply is streamed back as plain text
+curl -X POST http://s3r-llm-39a8.local/new            # starts a new conversation
+```
+
+Every device has a name, which is what it answers to over mDNS: `s3r-llm-` and
+the end of its MAC address, until `/name <name>` gives it a better one. Name
+and address are shown on the screen once the device is connected.
+
+It is plain HTTP without any authentication, so keep it to networks you trust.
+
 The accelerometer has a say as well:
 
 - Shaking the device raises the sampling temperature, also in the middle of a
