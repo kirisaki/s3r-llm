@@ -2,7 +2,13 @@
 
 A chat bot with a tiny LLM that runs entirely on the [M5Stack AtomS3R](https://docs.m5stack.com/en/core/AtomS3R) (ESP32-S3, 8MB flash, 8MB PSRAM).
 
-> **Status:** early work in progress. Nothing useful happens yet.
+Type a line into the USB serial port and the reply is streamed back to the
+serial port and onto the 128x128 screen, at roughly 5 to 9 tokens per second.
+
+The model is [TinyTalk 2](https://huggingface.co/TheREZOR/TinyTalk-2), an 8M
+parameter GPT-Neo fine-tuned for small talk, quantized to 4 bits (5.7MB). It
+knows about as much as a kindergartener and says "I don't know" a lot. It
+remembers the conversation for up to 256 tokens and then starts over.
 
 ## Requirements
 
@@ -16,7 +22,9 @@ included, so you can also just open this repository in VS Code and choose
 ## Build and flash
 
 ```sh
+tools/fetch_model.sh                                  # once: download the model into models/
 idf.py build
+idf.py -p /dev/ttyACM0 tokenizer-flash model-flash    # once: write the model, takes about a minute
 idf.py -p /dev/ttyACM0 flash monitor
 ```
 
@@ -26,4 +34,11 @@ from [`sdkconfig.defaults`](sdkconfig.defaults).
 
 ## License
 
-[0BSD](LICENSE)
+[0BSD](LICENSE), except for:
+
+- [`components/cardputer_llm`](components/cardputer_llm), the inference engine
+  from [therezor/cardputer-ai](https://github.com/therezor/cardputer-ai), which
+  is MIT licensed.
+- The model, which is not part of this repository. `tools/fetch_model.sh`
+  downloads the pre-quantized weights from cardputer-ai; TinyTalk 2 is licensed
+  [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/).
