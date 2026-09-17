@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cassert>
+#include <cstdio>
 #include <cstring>
 
 #include "esp_heap_caps.h"
@@ -60,15 +61,15 @@ const uint8_t *map_partition(const char *name, size_t *size)
     return static_cast<const uint8_t *>(data);
 }
 
-// Appends the tokens of text, as many as fit below limit
-int encode(const char *text, int n, int limit)
+// Appends the tokens of text
+int encode(const char *text, int n)
 {
     // llm_encode() needs room for one token per byte
     static int buf[MAX_TOKENS];
     assert(strlen(text) + 8 <= MAX_TOKENS);
     int len = 0;
     llm_encode(&tokenizer, text, 0, 0, buf, &len);
-    for (int i = 0; i < len && n < limit; i++) {
+    for (int i = 0; i < len && n < MAX_TOKENS; i++) {
         tokens[n++] = buf[i];
     }
     return n;
@@ -76,16 +77,26 @@ int encode(const char *text, int n, int limit)
 
 int encode_prompt(const char *prompt, bool first_turn)
 {
-    const int seq_len = transformer.config.seq_len;
-    int n = 0;
+    int start = 0;
     if (!first_turn) {
-        tokens[n++] = tokenizer.eos_id;
-        n = encode("\n", n, seq_len);
+        tokens[start++] = tokenizer.eos_id;
+        start = encode("\n", start);
     }
-    n = encode("User: ", n, seq_len);
-    // An overlong message is cut off rather than left without room for a reply
-    n = encode(prompt, n, seq_len - MIN_REPLY - 4);
-    n = encode("\nBot:", n, seq_len);
+
+    // The turn is tokenized in one go, the way the model was trained on it:
+    // pieced together from "User: " and the message, the space would end up as
+    // a token of its own instead of at the front of the first word.
+    // An overlong message is cut off rather than left without room for a reply.
+    static char turn[320];
+    const int limit = transformer.config.seq_len - MIN_REPLY;
+    int n;
+    for (size_t len = strlen(prompt);; len = len * 9 / 10) {
+        snprintf(turn, sizeof(turn), "User: %.*s\nBot:", static_cast<int>(len), prompt);
+        n = encode(turn, start);
+        if (n <= limit || len == 0) {
+            break;
+        }
+    }
     return n;
 }
 
