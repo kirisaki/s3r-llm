@@ -116,6 +116,9 @@ void init()
         ESP_LOGI(TAG, "no credentials, set them with /wifi <ssid> <password>");
     }
     ESP_ERROR_CHECK(esp_wifi_start());
+    // Power saving sleeps through multicast, which is what mDNS runs on, and
+    // adds a tenth of a second to every request
+    ESP_ERROR_CHECK(esp_wifi_set_ps(WIFI_PS_NONE));
 
     // http://<name>.local/
     ESP_ERROR_CHECK(mdns_init());

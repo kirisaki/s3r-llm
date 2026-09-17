@@ -26,6 +26,19 @@ Every device has a name, which is what it answers to over mDNS: `s3r-llm-` and
 the end of its MAC address, until `/name <name>` gives it a better one. Name
 and address are shown on the screen once the device is connected.
 
+Two devices can talk to each other, with nothing in between:
+
+```
+/talk bob Do you like dogs?
+```
+
+on the serial port of one of them (or `POST /talk` with `bob Do you like dogs?`
+as the body) makes it say the opening line to `bob` and keep answering whatever
+comes back, for up to 20 turns. Each screen shows the conversation from its own
+side. `/stop`, `POST /stop`, the button or anything else said to either device
+ends the talk; when the two go in circles, the one that started it thinks a
+little less straight for a turn.
+
 It is plain HTTP without any authentication, so keep it to networks you trust.
 
 The accelerometer has a say as well:

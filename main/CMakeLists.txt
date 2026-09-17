@@ -1,4 +1,4 @@
-idf_component_register(SRCS "main.cpp" "display.cpp" "chat.cpp" "serial.cpp" "llm.cpp" "i2c_bus.cpp" "imu.cpp" "button.cpp" "settings.cpp" "wifi.cpp" "api.cpp"
+idf_component_register(SRCS "main.cpp" "display.cpp" "chat.cpp" "serial.cpp" "llm.cpp" "i2c_bus.cpp" "imu.cpp" "button.cpp" "settings.cpp" "wifi.cpp" "api.cpp" "peer.cpp"
                     INCLUDE_DIRS ".")
 
 # `idf.py tokenizer-flash model-flash` writes the model; it is not part of

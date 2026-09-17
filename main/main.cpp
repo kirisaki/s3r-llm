@@ -2,12 +2,16 @@
 #include <cstdio>
 #include <cstring>
 
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+
 #include "api.hpp"
 #include "button.hpp"
 #include "chat.hpp"
 #include "display.hpp"
 #include "imu.hpp"
 #include "llm.hpp"
+#include "peer.hpp"
 #include "serial.hpp"
 #include "settings.hpp"
 #include "wifi.hpp"
@@ -23,9 +27,13 @@ constexpr float MAX_TEMPERATURE = 3.0f;
 // Toggled with "/stats"
 bool show_stats = false;
 
+// Added while a talk between two devices is going in circles
+float temperature_boost = 0.0f;
+
 float temperature()
 {
-    return std::min(llm::DEFAULT_TEMPERATURE + TEMPERATURE_PER_G * imu::shake_level(), MAX_TEMPERATURE);
+    return std::min(llm::DEFAULT_TEMPERATURE + TEMPERATURE_PER_G * imu::shake_level() + temperature_boost,
+                    MAX_TEMPERATURE);
 }
 
 // White at rest, towards orange-red as the temperature rises
@@ -50,15 +58,36 @@ const char *describe(imu::Event event)
     }
 }
 
-// Returns false if the reply was cut short to start a new conversation.
-bool respond(const char *prompt, bool to_api)
+// What can cut a reply short
+enum class Interrupt
 {
-    chat::add(chat::Speaker::User, prompt);
+    None,
+    // Just stop talking
+    Stop,
+    // And forget the conversation
+    New,
+};
+
+Interrupt poll_interrupt()
+{
+    if (button::pressed() || api::poll_new()) {
+        return Interrupt::New;
+    }
+    return api::poll_stop() ? Interrupt::Stop : Interrupt::None;
+}
+
+// Generates the reply to prompt onto the screen, the serial port and, if that is
+// where the prompt came from, the API.
+Interrupt answer(const char *prompt, bool to_api, char *reply, size_t reply_size)
+{
     chat::begin(chat::Speaker::Assistant);
+    if (reply) {
+        reply[0] = '\0';
+    }
 
     llm::set_temperature(temperature());
     float hottest = 0.0f;
-    bool cancelled = false;
+    Interrupt interrupt = Interrupt::None;
     const llm::Stats stats = llm::generate(prompt, [&](const char *piece) {
         // The piece was sampled at the temperature set before it
         const float t = temperature();
@@ -68,9 +97,12 @@ bool respond(const char *prompt, bool to_api)
         if (to_api) {
             api::send(piece);
         }
+        if (reply) {
+            strlcat(reply, piece, reply_size);
+        }
         llm::set_temperature(t);
-        cancelled = button::pressed() || api::poll_new();
-        return !cancelled;
+        interrupt = poll_interrupt();
+        return interrupt == Interrupt::None;
     });
     serial::write("\r\n");
     if (to_api) {
@@ -83,7 +115,15 @@ bool respond(const char *prompt, bool to_api)
                  stats.reply_ms ? 1000.0f * stats.reply_tokens / stats.reply_ms : 0.0f, hottest);
         serial::write(line);
     }
-    return !cancelled;
+    return interrupt;
+}
+
+// Shows prompt as said by the user and answers it. The reply is also copied to
+// reply, if there is one.
+Interrupt respond(const char *prompt, bool to_api, char *reply = nullptr, size_t reply_size = 0)
+{
+    chat::add(chat::Speaker::User, prompt);
+    return answer(prompt, to_api, reply, reply_size);
 }
 
 void new_conversation()
@@ -137,6 +177,148 @@ void wifi_command(char *args)
     serial::write("[wifi: connecting]\r\n");
 }
 
+// A talk with another device. This one keeps it going on its own: it sends
+// what it says to the API of the other one, and answers what comes back. The
+// other device needs to know nothing about it.
+constexpr int TALK_MAX_TURNS = 20;
+constexpr TickType_t TALK_PAUSE = pdMS_TO_TICKS(1500);
+constexpr float TALK_LOOP_BOOST = 0.7f;
+
+struct Talk
+{
+    bool active = false;
+    char peer[32];
+    char ip[16];
+    // What this device says next, and what it said and heard the turn before
+    char line[256];
+    char said_before[256];
+    char heard_before[256];
+    int turns = 0;
+    TickType_t next_turn = 0;
+};
+Talk talk;
+
+void stop_talk(const char *why)
+{
+    if (!talk.active) {
+        return;
+    }
+    talk.active = false;
+    temperature_boost = 0.0f;
+    char line[96];
+    snprintf(line, sizeof(line), "[talk with %s: %s]\r\n", talk.peer, why);
+    serial::write(line);
+}
+
+// "<device> [opening line]"
+void start_talk(char *args)
+{
+    while (*args == ' ') {
+        args++;
+    }
+    char *opening = strchr(args, ' ');
+    if (opening) {
+        *opening++ = '\0';
+        while (*opening == ' ') {
+            opening++;
+        }
+    }
+    if (*args == '\0') {
+        serial::write("[usage: /talk <device> [opening line]]\r\n");
+        return;
+    }
+    stop_talk("over");
+
+    Talk next;
+    strlcpy(next.peer, args, sizeof(next.peer));
+    if (!wifi::ip()) {
+        serial::write("[talk: no wifi]\r\n");
+        return;
+    }
+    if (strcmp(next.peer, wifi::name()) == 0 || !peer::resolve(next.peer, next.ip, sizeof(next.ip))) {
+        serial::write("[talk: no such device]\r\n");
+        return;
+    }
+    if (strcmp(next.ip, wifi::ip()) == 0) {
+        serial::write("[talk: that is me]\r\n");
+        return;
+    }
+    strlcpy(next.line, opening && *opening ? opening : "Hello!", sizeof(next.line));
+    next.said_before[0] = next.heard_before[0] = '\0';
+    next.active = true;
+    next.next_turn = xTaskGetTickCount();
+    talk = next;
+
+    llm::reset();
+    chat::init();
+    char line[96];
+    snprintf(line, sizeof(line), "[talk with %s at %s]\r\n", talk.peer, talk.ip);
+    serial::write(line);
+    // The opening line is this device speaking, even if the model did not come up with it
+    chat::add(chat::Speaker::Assistant, talk.line);
+    serial::write(talk.line);
+    serial::write("\r\n");
+}
+
+// One turn: say the line, hear the other device out, and think of a reply.
+void talk_turn()
+{
+    char heard[256] = "";
+    Interrupt interrupt = Interrupt::None;
+    serial::write(talk.peer);
+    serial::write(": ");
+    chat::begin(chat::Speaker::User);
+    const peer::Result result = peer::chat(talk.ip, talk.line, [&](const char *piece) {
+        // Replies start with a space and end with a newline, neither of which is needed here
+        if (heard[0] == '\0') {
+            while (*piece == ' ') {
+                piece++;
+            }
+        }
+        if (*piece != '\0' && strcmp(piece, "\n") != 0) {
+            strlcat(heard, piece, sizeof(heard));
+            chat::append(piece);
+            serial::write(piece);
+        }
+        interrupt = poll_interrupt();
+        return interrupt == Interrupt::None;
+    });
+    serial::write("\r\n");
+
+    if (result == peer::Result::Ok && heard[0] != '\0') {
+        // Going in circles? Think a little less straight until that is over.
+        const bool stuck = strcmp(heard, talk.heard_before) == 0 || strcmp(talk.line, talk.said_before) == 0;
+        temperature_boost = stuck ? TALK_LOOP_BOOST : 0.0f;
+        strlcpy(talk.heard_before, heard, sizeof(talk.heard_before));
+        strlcpy(talk.said_before, talk.line, sizeof(talk.said_before));
+
+        char reply[256];
+        interrupt = answer(heard, false, reply, sizeof(reply));
+        const char *line = reply;
+        while (*line == ' ') {
+            line++;
+        }
+        strlcpy(talk.line, line, sizeof(talk.line));
+    }
+
+    talk.turns++;
+    talk.next_turn = xTaskGetTickCount() + TALK_PAUSE;
+    if (interrupt == Interrupt::New) {
+        stop_talk("stopped");
+        new_conversation();
+    } else if (interrupt == Interrupt::Stop) {
+        stop_talk("stopped");
+    } else if (result == peer::Result::Busy) {
+        stop_talk("the other one is busy");
+    } else if (result != peer::Result::Ok) {
+        stop_talk("lost the other one");
+    } else if (heard[0] == '\0' || talk.line[0] == '\0') {
+        stop_talk("nothing more to say");
+    } else if (talk.turns >= TALK_MAX_TURNS) {
+        stop_talk("that will do");
+    }
+}
+
 // "/name" or "/name <name>"
 void name_command(const char *args)
 {
@@ -164,8 +346,12 @@ bool run_command(char *line)
         wifi_command(line + 5);
     } else if (strncmp(line, "/name", 5) == 0 && (line[5] == ' ' || line[5] == '\0')) {
         name_command(line + 5);
+    } else if (strncmp(line, "/talk", 5) == 0 && (line[5] == ' ' || line[5] == '\0')) {
+        start_talk(line + 5);
+    } else if (strcmp(line, "/stop") == 0) {
+        stop_talk("stopped");
     } else if (line[0] == '/') {
-        serial::write("[commands: /new /stats /wifi /name]\r\n");
+        serial::write("[commands: /new /stats /wifi /name /talk /stop]\r\n");
     } else {
         return false;
     }
@@ -209,34 +395,61 @@ extern "C" void app_main(void)
             announce_wifi();
         }
         // Motion speaks for the user, unless they are in the middle of a line
-        const char *motion = serial::typing() ? nullptr : describe(imu::poll_event());
+        // or the device is busy talking to another one
+        const imu::Event event = imu::poll_event();
+        const char *motion = serial::typing() || talk.active ? nullptr : describe(event);
         const char *input = nullptr;
         bool to_api = false;
-        if (button::pressed() || api::poll_new()) {
+        switch (poll_interrupt()) {
+        case Interrupt::New:
             serial::write("\r\n");
+            stop_talk("stopped");
             new_conversation();
-        } else if (serial::poll_line(prompt, sizeof(prompt), 50)) {
-            input = run_command(prompt) ? nullptr : prompt;
+            serial::write("> ");
+            continue;
+        case Interrupt::Stop:
+            serial::write("\r\n");
+            stop_talk("stopped");
+            serial::write("> ");
+            continue;
+        case Interrupt::None:
+            break;
+        }
+
+        if (serial::poll_line(prompt, sizeof(prompt), 50)) {
+            if (!run_command(prompt)) {
+                input = prompt;
+            }
+        } else if (!serial::typing() && api::poll_talk(prompt, sizeof(prompt))) {
+            serial::write("\r\n");
+            start_talk(prompt);
         } else if (!serial::typing() && api::poll_chat(prompt, sizeof(prompt))) {
             input = prompt;
             to_api = true;
         } else if (motion) {
             input = motion;
+        } else if (talk.active && !serial::typing() && xTaskGetTickCount() >= talk.next_turn) {
+            serial::write("\r");
+            talk_turn();
         } else {
             continue;
         }
 
         if (input && input[0] != '\0') {
+            // Somebody else wants a word
+            stop_talk("interrupted");
             if (input != prompt || to_api) {
                 // Not typed here, so not echoed yet
                 serial::write(input);
                 serial::write("\r\n");
             }
-            if (!respond(input, to_api)) {
+            if (respond(input, to_api) == Interrupt::New) {
                 new_conversation();
             }
         }
         imu::poll_event(); // whatever happened during the reply is stale
-        serial::write("> ");
+        if (!talk.active) {
+            serial::write("> ");
+        }
     }
 }

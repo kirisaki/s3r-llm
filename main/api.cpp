@@ -29,6 +29,8 @@ constexpr char USAGE[] = "s3r-llm\n"
                          "\n"
                          "POST /chat  the body is your message, the reply is streamed back\n"
                          "POST /new   starts a new conversation\n"
+                         "POST /talk  the body is \"<device> [opening line]\", to talk to another device\n"
+                         "POST /stop  cuts short what is being said, and ends a talk\n"
                          "\n"
                          "curl -N -d 'Hello!' http://<this device>/chat\n";
 
@@ -40,9 +42,12 @@ char message[MAX_MESSAGE];
 std::atomic<bool> message_waiting{false};
 MessageBufferHandle_t pieces;
 std::atomic<bool> new_requested{false};
+std::atomic<bool> stop_requested{false};
+char talk_request[MAX_MESSAGE];
+std::atomic<bool> talk_waiting{false};
 
 // Reads the body, keeps the printable ASCII of it
-bool receive_message(httpd_req_t *req)
+bool receive_body(httpd_req_t *req, char *message)
 {
     size_t len = 0;
     size_t remaining = req->content_len;
@@ -53,7 +58,7 @@ bool receive_message(httpd_req_t *req)
             return false;
         }
         for (int i = 0; i < n; i++) {
-            if (buf[i] >= 0x20 && buf[i] <= 0x7E && len + 1 < sizeof(message)) {
+            if (buf[i] >= 0x20 && buf[i] <= 0x7E && len + 1 < MAX_MESSAGE) {
                 message[len++] = buf[i];
             }
         }
@@ -111,7 +116,7 @@ esp_err_t handle_chat(httpd_req_t *req)
         return httpd_resp_sendstr(req, "busy with another request\n");
     }
     httpd_req_t *async_req = nullptr;
-    if (!receive_message(req) || httpd_req_async_handler_begin(req, &async_req) != ESP_OK) {
+    if (!receive_body(req, message) || httpd_req_async_handler_begin(req, &async_req) != ESP_OK) {
         xSemaphoreGive(chat_lock);
         return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "the body has to be the message, in ASCII");
     }
@@ -125,6 +130,21 @@ esp_err_t handle_chat(httpd_req_t *req)
 esp_err_t handle_new(httpd_req_t *req)
 {
     new_requested = true;
+    return httpd_resp_sendstr(req, "ok\n");
+}
+
+esp_err_t handle_stop(httpd_req_t *req)
+{
+    stop_requested = true;
+    return httpd_resp_sendstr(req, "ok\n");
+}
+
+esp_err_t handle_talk(httpd_req_t *req)
+{
+    if (talk_waiting || !receive_body(req, talk_request)) {
+        return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "the body has to be \"<device> [opening line]\"");
+    }
+    talk_waiting = true;
     return httpd_resp_sendstr(req, "ok\n");
 }
 
@@ -153,6 +173,8 @@ void start()
         {"/", HTTP_GET, handle_usage, nullptr},
         {"/chat", HTTP_POST, handle_chat, nullptr},
         {"/new", HTTP_POST, handle_new, nullptr},
+        {"/talk", HTTP_POST, handle_talk, nullptr},
+        {"/stop", HTTP_POST, handle_stop, nullptr},
     };
     for (const auto &route : routes) {
         ESP_ERROR_CHECK(httpd_register_uri_handler(server, &route));
@@ -182,6 +204,21 @@ void finish()
 bool poll_new()
 {
     return new_requested.exchange(false);
+}
+
+bool poll_stop()
+{
+    return stop_requested.exchange(false);
+}
+
+bool poll_talk(char *buf, size_t size)
+{
+    if (!talk_waiting) {
+        return false;
+    }
+    strlcpy(buf, talk_request, size);
+    talk_waiting = false;
+    return true;
 }
 
 } // namespace api
