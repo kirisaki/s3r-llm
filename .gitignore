@@ -79,3 +79,8 @@ Desktop.ini
 
 # Model weights, see tools/fetch_model.sh
 models/
+
+# Training: third-party checkout, generated data and checkpoints
+training/cardputer-ai/
+training/data/
+training/out/
