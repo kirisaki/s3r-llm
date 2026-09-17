@@ -17,57 +17,84 @@ constexpr uint16_t USER_COLOR = display::rgb565(0, 200, 255);
 constexpr uint16_t ASSISTANT_COLOR = display::WHITE;
 constexpr char USER_PREFIX[] = "> ";
 
-// Top of the next line to be drawn
+// Top of the line being written
 int cursor_y = 0;
 bool empty = true;
+uint16_t color = ASSISTANT_COLOR;
 
-// Draws one line at the cursor, scrolling first if it would not fit.
-void put_line(const char *prefix, const char *text, int len, uint16_t color)
+// The line being written. Text arrives in pieces, so a word that turns out
+// not to fit has to be taken back off the screen and moved to the next line.
+char line[display::COLS];
+int line_len = 0;
+// Characters before this belong to the prefix and are not a place to wrap
+int line_start = 0;
+// The line is full and the space after it has been dropped; the break itself
+// waits for the next character so that a message never ends in a blank line
+bool break_pending = false;
+
+void draw(int col, char c)
 {
+    // Scroll only once something is drawn, so that trailing blank lines cost
+    // no screen space
     const int overflow = cursor_y + font5x7::HEIGHT - display::HEIGHT;
     if (overflow > 0) {
         display::scroll_up(overflow);
         cursor_y -= overflow;
     }
-    int x = 0;
-    for (; *prefix; prefix++, x += display::CELL_W) {
-        display::draw_char(x, cursor_y, *prefix, color);
-    }
-    for (int i = 0; i < len; i++, x += display::CELL_W) {
-        display::draw_char(x, cursor_y, text[i], color);
-    }
+    display::draw_char(col * display::CELL_W, cursor_y, c, color);
+}
+
+void put(char c)
+{
+    line[line_len] = c;
+    draw(line_len, c);
+    line_len++;
+}
+
+void new_line()
+{
     cursor_y += font5x7::HEIGHT + LINE_GAP;
+    line_len = 0;
+    line_start = 0;
+    break_pending = false;
 }
 
-// Length of the first line of text when wrapped at cols. Breaks at the last
+// Called with a full line and one more character to place. Breaks at the last
 // space if there is one, otherwise in the middle of the word.
-int wrap(const char *text, int cols)
+void wrap(char c)
 {
-    int last_space = -1;
-    for (int i = 0; i <= cols; i++) {
-        if (text[i] == '\0' || text[i] == '\n') {
-            return i;
-        }
-        if (text[i] == ' ') {
-            last_space = i;
-        }
+    if (break_pending) {
+        new_line();
+        put(c);
+        return;
     }
-    return last_space > 0 ? last_space : cols;
-}
+    if (c == ' ') {
+        // The break takes the place of the space
+        break_pending = true;
+        return;
+    }
 
-// The prefix goes in front of the first line only.
-void put_text(const char *prefix, const char *text, uint16_t color)
-{
-    do {
-        const int len = wrap(text, display::COLS - strlen(prefix));
-        put_line(prefix, text, len, color);
-        prefix = "";
-        text += len;
-        // The break itself takes the place of one space or newline
-        if (*text == ' ' || *text == '\n') {
-            text++;
-        }
-    } while (*text);
+    int last_space = line_len - 1;
+    while (last_space > line_start && line[last_space] != ' ') {
+        last_space--;
+    }
+    if (last_space <= line_start) {
+        new_line();
+        put(c);
+        return;
+    }
+
+    char word[display::COLS];
+    const int word_len = line_len - (last_space + 1);
+    memcpy(word, line + last_space + 1, word_len);
+    for (int col = last_space + 1; col < line_len; col++) {
+        draw(col, ' ');
+    }
+    new_line();
+    for (int i = 0; i < word_len; i++) {
+        put(word[i]);
+    }
+    put(c);
 }
 
 } // namespace
@@ -76,23 +103,53 @@ void init()
 {
     cursor_y = 0;
     empty = true;
+    line_len = 0;
+    line_start = 0;
+    break_pending = false;
     display::clear();
+    display::flush();
+}
+
+void begin(Speaker speaker)
+{
+    if (!empty) {
+        new_line();
+        cursor_y += SPEAKER_GAP - LINE_GAP;
+    }
+    empty = false;
+
+    const bool user = speaker == Speaker::User;
+    color = user ? USER_COLOR : ASSISTANT_COLOR;
+    if (user) {
+        for (const char *p = USER_PREFIX; *p; p++) {
+            put(*p);
+        }
+        line_start = line_len;
+    }
+    display::flush();
+}
+
+void append(const char *text)
+{
+    for (; *text; text++) {
+        if (*text == '\n') {
+            if (break_pending) {
+                new_line();
+            }
+            new_line();
+        } else if (line_len < display::COLS) {
+            put(*text);
+        } else {
+            wrap(*text);
+        }
+    }
     display::flush();
 }
 
 void add(Speaker speaker, const char *text)
 {
-    if (!empty) {
-        cursor_y += SPEAKER_GAP - LINE_GAP;
-    }
-    empty = false;
-
-    if (speaker == Speaker::User) {
-        put_text(USER_PREFIX, text, USER_COLOR);
-    } else {
-        put_text("", text, ASSISTANT_COLOR);
-    }
-    display::flush();
+    begin(speaker);
+    append(text);
 }
 
 } // namespace chat

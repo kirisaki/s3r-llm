@@ -1,4 +1,5 @@
 #include <cstdio>
+#include <cstring>
 
 #include "driver/gpio.h"
 #include "freertos/FreeRTOS.h"
@@ -36,6 +37,19 @@ constexpr Message SCRIPT[] = {
 };
 constexpr int SCRIPT_LEN = sizeof(SCRIPT) / sizeof(SCRIPT[0]);
 
+// Feeds text to the chat a few characters at a time, like tokens from a model
+void stream(const char *text)
+{
+    constexpr int PIECE_LEN = 3;
+    char piece[PIECE_LEN + 1];
+    while (*text) {
+        strlcpy(piece, text, sizeof(piece));
+        chat::append(piece);
+        text += strlen(piece);
+        vTaskDelay(pdMS_TO_TICKS(60));
+    }
+}
+
 void wait_for_press()
 {
     // Debounce: the level has to hold for a few polls in a row
@@ -65,7 +79,12 @@ extern "C" void app_main(void)
         if (i == 0) {
             chat::init();
         }
-        chat::add(SCRIPT[i].speaker, SCRIPT[i].text);
+        if (SCRIPT[i].speaker == chat::Speaker::User) {
+            chat::add(SCRIPT[i].speaker, SCRIPT[i].text);
+        } else {
+            chat::begin(SCRIPT[i].speaker);
+            stream(SCRIPT[i].text);
+        }
         wait_for_press();
     }
 }

@@ -1,6 +1,6 @@
 # s3r-llm
 
-An LLM chat bot that runs on the [M5Stack AtomS3R](https://docs.m5stack.com/en/core/AtomS3R) (ESP32-S3, 8MB flash, 8MB PSRAM).
+A chat bot with a tiny LLM that runs entirely on the [M5Stack AtomS3R](https://docs.m5stack.com/en/core/AtomS3R) (ESP32-S3, 8MB flash, 8MB PSRAM).
 
 > **Status:** early work in progress. Nothing useful happens yet.
 
