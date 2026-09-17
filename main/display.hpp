@@ -31,6 +31,8 @@ void clear(uint16_t color = BLACK);
 void draw_char(int x, int y, char c, uint16_t fg = WHITE, uint16_t bg = BLACK);
 // x, y are in pixels. Wraps at the right edge and on '\n'.
 void draw_text(int x, int y, const char *text, uint16_t fg = WHITE, uint16_t bg = BLACK);
+// Moves the whole image up by px rows and fills the freed rows with bg.
+void scroll_up(int px, uint16_t bg = BLACK);
 void flush();
 
 } // namespace display

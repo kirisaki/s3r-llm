@@ -1,6 +1,7 @@
 #include "display.hpp"
 
 #include <cassert>
+#include <cstring>
 
 #include "driver/gpio.h"
 #include "driver/i2c_master.h"
@@ -220,6 +221,21 @@ void draw_text(int x, int y, const char *text, uint16_t fg, uint16_t bg)
         }
         draw_char(x, y, *text, fg, bg);
         x += CELL_W;
+    }
+}
+
+void scroll_up(int px, uint16_t bg)
+{
+    if (px <= 0) {
+        return;
+    }
+    if (px > HEIGHT) {
+        px = HEIGHT;
+    }
+    memmove(fb, fb + px * WIDTH, (HEIGHT - px) * WIDTH * sizeof(uint16_t));
+    const uint16_t wire = to_wire(bg);
+    for (int i = (HEIGHT - px) * WIDTH; i < WIDTH * HEIGHT; i++) {
+        fb[i] = wire;
     }
 }
 
