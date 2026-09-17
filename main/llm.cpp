@@ -1,5 +1,6 @@
 #include "llm.hpp"
 
+#include <algorithm>
 #include <cassert>
 #include <cstring>
 
@@ -22,8 +23,11 @@ namespace
 constexpr char TAG[] = "llm";
 
 constexpr float TOP_P = 0.9f;
-// Positions that have to be left for the reply, or the conversation starts over
+// Positions that have to be left for the reply, or old turns get dropped
 constexpr int MIN_REPLY = 48;
+// How much of the conversation survives that. The kept turns have to be read
+// again at new positions, so this is a pause of several seconds.
+constexpr int KEEP_TOKENS = 64;
 // Every token reads all of the weights, and PSRAM is the faster place to read
 // them from: about 8.5 tok/s instead of 4.5 tok/s straight from flash. Costs
 // the size of the model partition in PSRAM and 0.3s at boot.
@@ -35,6 +39,10 @@ Sampler sampler;
 
 // Position of the next token; everything before it is in the KV cache
 int pos = 0;
+// The tokens at those positions, to rebuild the cache from when it fills up
+constexpr int MAX_SEQ_LEN = 512;
+int16_t context[MAX_SEQ_LEN];
+int newline_id = 0;
 
 // The training format is "User: <u>\nBot: <b><eos>\nUser: <u>\nBot: ..."
 constexpr int MAX_TOKENS = 512;
@@ -81,6 +89,28 @@ int encode_prompt(const char *prompt, bool first_turn)
     return n;
 }
 
+float *feed(int token, bool want_logits)
+{
+    context[pos] = token;
+    transformer.skip_classifier = !want_logits;
+    float *logits = llm_forward(&transformer, token, pos++);
+    vTaskDelay(1); // let the idle task feed the watchdog
+    return logits;
+}
+
+// Start of the most recent whole turns that fit into budget tokens, or pos if
+// not even the last one does.
+int recent_turns_start(int budget)
+{
+    int start = pos;
+    for (int i = pos; i >= 2 && pos - i <= budget; i--) {
+        if (context[i - 2] == tokenizer.eos_id && context[i - 1] == newline_id) {
+            start = i;
+        }
+    }
+    return start;
+}
+
 bool emit_ascii(const char *piece, const Sink &sink)
 {
     char buf[32];
@@ -117,6 +147,12 @@ void init()
         ESP_LOGE(TAG, "no usable model in flash, run `idf.py tokenizer-flash model-flash`");
         abort();
     }
+    int newline[8];
+    int len = 0;
+    llm_encode(&tokenizer, "\n", 0, 0, newline, &len);
+    assert(len == 1 && transformer.config.seq_len <= MAX_SEQ_LEN);
+    newline_id = newline[0];
+
     llm_build_sampler(&sampler, transformer.config.vocab_size, DEFAULT_TEMPERATURE, TOP_P, esp_random());
 
     const Config &c = transformer.config;
@@ -137,22 +173,28 @@ void reset()
 Stats generate(const char *prompt, const Sink &sink)
 {
     const int seq_len = transformer.config.seq_len;
+    Stats stats = {};
+    const int64_t start = esp_timer_get_time();
 
     int n = encode_prompt(prompt, pos == 0);
     if (pos + n + MIN_REPLY > seq_len) {
-        // Out of positions: forget the conversation so far
+        // Out of positions: start over with just the last few turns
+        const int budget = std::min(KEEP_TOKENS, seq_len - MIN_REPLY - n - 2);
+        const int keep_from = recent_turns_start(budget);
+        const int kept = pos - keep_from;
+        memmove(context, context + keep_from, kept * sizeof(context[0]));
         pos = 0;
-        n = encode_prompt(prompt, true);
+        while (pos < kept) {
+            feed(context[pos], false);
+        }
+        stats.prompt_tokens += kept;
+        n = encode_prompt(prompt, pos == 0);
     }
-
-    Stats stats = {};
-    stats.prompt_tokens = n;
-    const int64_t start = esp_timer_get_time();
+    stats.prompt_tokens += n;
 
     float *logits = nullptr;
     for (int i = 0; i < n; i++) {
-        logits = llm_forward(&transformer, tokens[i], pos++);
-        vTaskDelay(1); // let the idle task feed the watchdog
+        logits = feed(tokens[i], i == n - 1);
     }
     const int64_t prompt_done = esp_timer_get_time();
 
@@ -183,11 +225,7 @@ Stats generate(const char *prompt, const Sink &sink)
         }
         stats.reply_tokens++;
 
-        logits = llm_forward(&transformer, token, pos++);
-        vTaskDelay(1);
-    }
-    if (pos >= seq_len - 1) {
-        pos = 0;
+        logits = feed(token, true);
     }
 
     stats.prompt_ms = (prompt_done - start) / 1000;

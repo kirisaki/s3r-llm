@@ -552,7 +552,8 @@ static float* forward_gptneo(Transformer* T, int token, int pos, int abspos) {
   layernorm(s->x, s->x, T->rms_final, T->ln_final_b, dim);
 
   // ---- classifier: tied to the (pruned) token embedding ----
-  matmul_q4(s->logits, s->x, T->wcls_q4, dim, p->vocab_size);
+  if (!T->skip_classifier)   // s3r-llm
+    matmul_q4(s->logits, s->x, T->wcls_q4, dim, p->vocab_size);
 
   taskYIELD();
   return s->logits;

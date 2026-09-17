@@ -85,6 +85,11 @@ typedef struct {
   // Per-layer stride in bytes for the Q4 tensors above.
   size_t stride_wq, stride_wk, stride_wv, stride_wo;
   size_t stride_w1w3, stride_w2;
+
+  // s3r-llm: set while feeding prompt tokens whose logits nobody looks at, to
+  // skip the classifier - a third of the work per token. GPT-Neo path only;
+  // the logits returned by llm_forward() are stale while this is set.
+  bool skip_classifier;
 } Transformer;
 
 // Walking tokenizer — no in-RAM vocab table. The tokenizer.bin lives in flash

@@ -10,3 +10,5 @@ Local changes, marked with `s3r-llm:` in the source:
 - The KV cache is allocated from PSRAM when there is any, so that the context
   window can cover all 256 positions of the model instead of the 72 that fit
   in internal RAM.
+- `Transformer::skip_classifier` skips the logits for prompt tokens, which
+  makes reading the prompt about a third faster.

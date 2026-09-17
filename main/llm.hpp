@@ -4,7 +4,7 @@
 
 // The on-device model: TinyTalk 2, read from the "model" and "tokenizer"
 // partitions. It remembers the conversation for as long as it fits into the
-// model's 256 positions and starts over when it no longer does.
+// model's 256 positions, and only the last few turns once it no longer does.
 namespace llm
 {
 

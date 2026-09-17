@@ -1,6 +1,6 @@
 #include <algorithm>
-
-#include "esp_log.h"
+#include <cstdio>
+#include <cstring>
 
 #include "button.hpp"
 #include "chat.hpp"
@@ -12,12 +12,13 @@
 namespace
 {
 
-constexpr char TAG[] = "main";
-
 // Shaking the device heats the sampler up: at rest the model is as sensible as
 // it gets, a good shake turns the reply into word salad.
 constexpr float TEMPERATURE_PER_G = 1.0f;
 constexpr float MAX_TEMPERATURE = 3.0f;
+
+// Toggled with "/stats"
+bool show_stats = false;
 
 float temperature()
 {
@@ -66,9 +67,13 @@ bool respond(const char *prompt)
         return !cancelled;
     });
     serial::write("\r\n");
-    ESP_LOGI(TAG, "prompt: %d tokens in %d ms, reply: %d tokens in %d ms (%.1f tok/s), temperature up to %.1f",
-             stats.prompt_tokens, stats.prompt_ms, stats.reply_tokens, stats.reply_ms,
-             stats.reply_ms ? 1000.0f * stats.reply_tokens / stats.reply_ms : 0.0f, hottest);
+    if (show_stats) {
+        char line[128];
+        snprintf(line, sizeof(line), "[prompt: %d tokens in %d ms, reply: %d tokens in %d ms (%.1f tok/s), temperature up to %.1f]\r\n",
+                 stats.prompt_tokens, stats.prompt_ms, stats.reply_tokens, stats.reply_ms,
+                 stats.reply_ms ? 1000.0f * stats.reply_tokens / stats.reply_ms : 0.0f, hottest);
+        serial::write(line);
+    }
     return !cancelled;
 }
 
@@ -76,7 +81,23 @@ void new_conversation()
 {
     llm::reset();
     chat::init();
-    serial::write("\r\n[new conversation]\r\n");
+    serial::write("[new conversation]\r\n");
+}
+
+// Lines starting with a slash are for the device, not for the model.
+bool run_command(const char *line)
+{
+    if (strcmp(line, "/new") == 0) {
+        new_conversation();
+    } else if (strcmp(line, "/stats") == 0) {
+        show_stats = !show_stats;
+        serial::write(show_stats ? "[stats on]\r\n" : "[stats off]\r\n");
+    } else if (line[0] == '/') {
+        serial::write("[commands: /new /stats]\r\n");
+    } else {
+        return false;
+    }
+    return true;
 }
 
 } // namespace
@@ -97,9 +118,10 @@ extern "C" void app_main(void)
         const char *motion = serial::typing() ? nullptr : describe(imu::poll_event());
         const char *input = nullptr;
         if (button::pressed()) {
+            serial::write("\r\n");
             new_conversation();
         } else if (serial::poll_line(prompt, sizeof(prompt), 50)) {
-            input = prompt;
+            input = run_command(prompt) ? nullptr : prompt;
         } else if (motion) {
             serial::write(motion);
             serial::write("\r\n");

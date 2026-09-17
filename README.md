@@ -8,8 +8,10 @@ serial port and onto the 128x128 screen, at roughly 5 to 9 tokens per second.
 The model is [TinyTalk 2](https://huggingface.co/TheREZOR/TinyTalk-2), an 8M
 parameter GPT-Neo fine-tuned for small talk, quantized to 4 bits (5.7MB). It
 knows about as much as a kindergartener and says "I don't know" a lot. It
-remembers the conversation for up to 256 tokens and then starts over.
-Pressing the screen starts a new conversation, also in the middle of a reply.
+remembers the conversation for up to 256 tokens; after that it keeps only
+the last few turns, which takes it a few seconds. Pressing the screen or
+typing `/new` starts a new conversation, and `/stats` shows token counts and
+speed after each reply.
 
 The accelerometer has a say as well:
 
