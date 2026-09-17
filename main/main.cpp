@@ -2,6 +2,7 @@
 
 #include "esp_log.h"
 
+#include "button.hpp"
 #include "chat.hpp"
 #include "display.hpp"
 #include "imu.hpp"
@@ -45,13 +46,15 @@ const char *describe(imu::Event event)
     }
 }
 
-void respond(const char *prompt)
+// Returns false if the button cut the reply short.
+bool respond(const char *prompt)
 {
     chat::add(chat::Speaker::User, prompt);
     chat::begin(chat::Speaker::Assistant);
 
     llm::set_temperature(temperature());
     float hottest = 0.0f;
+    bool cancelled = false;
     const llm::Stats stats = llm::generate(prompt, [&](const char *piece) {
         // The piece was sampled at the temperature set before it
         const float t = temperature();
@@ -59,11 +62,21 @@ void respond(const char *prompt)
         chat::append(piece, temperature_color(t));
         serial::write(piece);
         llm::set_temperature(t);
+        cancelled = button::pressed();
+        return !cancelled;
     });
     serial::write("\r\n");
     ESP_LOGI(TAG, "prompt: %d tokens in %d ms, reply: %d tokens in %d ms (%.1f tok/s), temperature up to %.1f",
              stats.prompt_tokens, stats.prompt_ms, stats.reply_tokens, stats.reply_ms,
              stats.reply_ms ? 1000.0f * stats.reply_tokens / stats.reply_ms : 0.0f, hottest);
+    return !cancelled;
+}
+
+void new_conversation()
+{
+    llm::reset();
+    chat::init();
+    serial::write("\r\n[new conversation]\r\n");
 }
 
 } // namespace
@@ -75,26 +88,30 @@ extern "C" void app_main(void)
     chat::init();
     llm::init();
     imu::init();
+    button::init();
 
     static char prompt[256];
     serial::write("> ");
     for (;;) {
-        if (serial::poll_line(prompt, sizeof(prompt), 50)) {
-            if (prompt[0] != '\0') {
-                respond(prompt);
-            }
-            imu::poll_event(); // whatever happened during the reply is stale
-            serial::write("> ");
-            continue;
-        }
         // Motion speaks for the user, unless they are in the middle of a line
         const char *motion = serial::typing() ? nullptr : describe(imu::poll_event());
-        if (motion) {
+        const char *input = nullptr;
+        if (button::pressed()) {
+            new_conversation();
+        } else if (serial::poll_line(prompt, sizeof(prompt), 50)) {
+            input = prompt;
+        } else if (motion) {
             serial::write(motion);
             serial::write("\r\n");
-            respond(motion);
-            imu::poll_event();
-            serial::write("> ");
+            input = motion;
+        } else {
+            continue;
         }
+
+        if (input && input[0] != '\0' && !respond(input)) {
+            new_conversation();
+        }
+        imu::poll_event(); // whatever happened during the reply is stale
+        serial::write("> ");
     }
 }

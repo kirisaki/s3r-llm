@@ -9,7 +9,8 @@ namespace llm
 {
 
 // Receives the reply piece by piece as it is generated. Pieces are ASCII.
-using Sink = std::function<void(const char *piece)>;
+// Returning false cuts the reply short.
+using Sink = std::function<bool(const char *piece)>;
 
 struct Stats
 {
@@ -24,6 +25,8 @@ constexpr float DEFAULT_TEMPERATURE = 0.8f;
 void init();
 // Takes effect with the next token, also in the middle of a reply.
 void set_temperature(float temperature);
+// Forgets the conversation so far.
+void reset();
 // Blocks until the reply to prompt is complete.
 Stats generate(const char *prompt, const Sink &sink);
 

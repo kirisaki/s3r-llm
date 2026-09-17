@@ -81,7 +81,7 @@ int encode_prompt(const char *prompt, bool first_turn)
     return n;
 }
 
-void emit_ascii(const char *piece, const Sink &sink)
+bool emit_ascii(const char *piece, const Sink &sink)
 {
     char buf[32];
     size_t len = 0;
@@ -92,9 +92,7 @@ void emit_ascii(const char *piece, const Sink &sink)
         }
     }
     buf[len] = '\0';
-    if (len > 0) {
-        sink(buf);
-    }
+    return len == 0 || sink(buf);
 }
 
 } // namespace
@@ -129,6 +127,11 @@ void init()
 void set_temperature(float temperature)
 {
     sampler.temperature = temperature;
+}
+
+void reset()
+{
+    pos = 0;
 }
 
 Stats generate(const char *prompt, const Sink &sink)
@@ -168,13 +171,15 @@ Stats generate(const char *prompt, const Sink &sink)
                 pos--; // take the newline back out of the context
                 break;
             }
-            sink("\n");
+            if (!sink("\n")) {
+                break;
+            }
             pending_newline = false;
         }
         if (strcmp(piece, "\n") == 0) {
             pending_newline = true;
-        } else {
-            emit_ascii(piece, sink);
+        } else if (!emit_ascii(piece, sink)) {
+            break;
         }
         stats.reply_tokens++;
 

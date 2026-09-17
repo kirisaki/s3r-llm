@@ -9,6 +9,7 @@ The model is [TinyTalk 2](https://huggingface.co/TheREZOR/TinyTalk-2), an 8M
 parameter GPT-Neo fine-tuned for small talk, quantized to 4 bits (5.7MB). It
 knows about as much as a kindergartener and says "I don't know" a lot. It
 remembers the conversation for up to 256 tokens and then starts over.
+Pressing the screen starts a new conversation, also in the middle of a reply.
 
 The accelerometer has a say as well:
 
