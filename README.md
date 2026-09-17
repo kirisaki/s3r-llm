@@ -23,15 +23,18 @@ v6.1 or later. A [Dev Container](.devcontainer/) based on the official
 VS Code and choose "Reopen in Container".
 
 ```sh
-tools/fetch_model.sh                                  # once: download the model into models/
+tools/fetch_model.sh                                       # once: download the model into models/
 idf.py build
-idf.py -p /dev/ttyACM0 tokenizer-flash model-flash    # once: write the model, takes about a minute
+ESPPORT=/dev/ttyACM0 idf.py tokenizer-flash model-flash    # once: write the model, takes about a minute
 idf.py -p /dev/ttyACM0 flash monitor
 ```
 
-Replace `/dev/ttyACM0` with the serial port of your device. Once the `> ` prompt
-shows up, say hello. Any serial terminal will do in place of `idf.py monitor`;
-the baud rate does not matter.
+Replace `/dev/ttyACM0` with the serial port of your device. The two targets
+that write the model take the port from `ESPPORT`, not from `-p`; without it
+they pick a port themselves, which matters once there is more than one device.
+
+Once the `> ` prompt shows up, say hello. Any serial terminal will do in place
+of `idf.py monitor`; the baud rate does not matter.
 
 The target and the board-specific settings (flash size, octal PSRAM, USB
 Serial/JTAG console) come from [`sdkconfig.defaults`](sdkconfig.defaults).
@@ -55,7 +58,7 @@ slash:
 | `/wifi <ssid> <password>` | Connects to a 2.4GHz network and remembers it. An SSID with spaces in it goes into double quotes. |
 | `/wifi` | Shows the address of the device, or why it is not connected. |
 | `/wifi off` | Forgets the network. |
-| `/name <name>` | Names the device: lowercase letters, digits and hyphens. `/name` shows the name. |
+| `/name <name>` | Names the device: lowercase letters, digits and hyphens. `/name` shows the name. With a model [trained for it](training/), it also goes by that name in conversation. |
 | `/talk <device> [opening line]` | Starts a talk with another device, see below. |
 | `/stop` | Ends a talk. |
 
@@ -136,6 +139,8 @@ just gets API requests.
   over the serial port, not compiled in.
 
 `tools/demo.py` plays a short scripted conversation over the serial port.
+[`training/`](training/) fine-tunes the model, so far to make it go by the name
+of its device.
 
 ## License
 

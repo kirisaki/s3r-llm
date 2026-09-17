@@ -25,6 +25,9 @@ constexpr float DEFAULT_TEMPERATURE = 0.8f;
 void init();
 // Takes effect with the next token, also in the middle of a reply.
 void set_temperature(float temperature);
+// What the model is to call itself, "" for nothing. Starts a new conversation.
+// Needs a model that has been trained for it, see training/.
+void set_name(const char *name);
 // Forgets the conversation so far.
 void reset();
 // Blocks until the reply to prompt is complete.

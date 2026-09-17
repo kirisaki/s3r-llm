@@ -24,6 +24,8 @@ const char *ip();
 // DHCP hostname. Tells several devices apart; "s3r-llm-" and the end of the
 // MAC address until it is set.
 const char *name();
+// Whether the name has been set, rather than made up from the MAC address.
+bool named();
 // Lowercase letters, digits and hyphens, at most 31 of them. Returns false and
 // changes nothing otherwise.
 bool set_name(const char *name);

@@ -31,6 +31,7 @@ char ssid_text[33];
 std::atomic<int> last_reason{0};
 esp_netif_t *netif = nullptr;
 char device_name[MAX_NAME + 1];
+bool name_is_set = false;
 
 void on_event(void *, esp_event_base_t base, int32_t id, void *data)
 {
@@ -90,7 +91,8 @@ void connect(const char *ssid, const char *password)
 
 void init()
 {
-    if (!settings::get("name", device_name, sizeof(device_name)) || !valid_name(device_name)) {
+    name_is_set = settings::get("name", device_name, sizeof(device_name)) && valid_name(device_name);
+    if (!name_is_set) {
         uint8_t mac[6];
         ESP_ERROR_CHECK(esp_read_mac(mac, ESP_MAC_WIFI_STA));
         snprintf(device_name, sizeof(device_name), "s3r-llm-%02x%02x", mac[4], mac[5]);
@@ -189,12 +191,18 @@ const char *name()
     return device_name;
 }
 
+bool named()
+{
+    return name_is_set;
+}
+
 bool set_name(const char *name)
 {
     if (!valid_name(name)) {
         return false;
     }
     strlcpy(device_name, name, sizeof(device_name));
+    name_is_set = true;
     settings::set("name", device_name);
     // mDNS follows at once, DHCP with the next lease
     esp_netif_set_hostname(netif, device_name);

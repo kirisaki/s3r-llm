@@ -325,9 +325,14 @@ void name_command(const char *args)
     while (*args == ' ') {
         args++;
     }
-    if (*args != '\0' && !wifi::set_name(args)) {
-        serial::write("[a name is up to 31 lowercase letters, digits and hyphens]\r\n");
-        return;
+    if (*args != '\0') {
+        if (!wifi::set_name(args)) {
+            serial::write("[a name is up to 31 lowercase letters, digits and hyphens]\r\n");
+            return;
+        }
+        // The model goes by the new name from the next conversation on
+        llm::set_name(wifi::name());
+        chat::init();
     }
     char line[64];
     snprintf(line, sizeof(line), "[name: %s]\r\n", wifi::name());
@@ -386,6 +391,7 @@ extern "C" void app_main(void)
     button::init();
     settings::init();
     wifi::init();
+    llm::set_name(wifi::named() ? wifi::name() : "");
     api::start();
 
     static char prompt[256];

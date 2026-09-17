@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cassert>
+#include <cctype>
 #include <cstdio>
 #include <cstring>
 
@@ -45,6 +46,10 @@ constexpr int MAX_SEQ_LEN = 512;
 int16_t context[MAX_SEQ_LEN];
 int newline_id = 0;
 
+// "Name: Alice\n", what a conversation starts with if the device has a name.
+// The model has been trained to go by the name given there.
+char header[48] = "";
+
 // The training format is "User: <u>\nBot: <b><eos>\nUser: <u>\nBot: ..."
 constexpr int MAX_TOKENS = 512;
 int tokens[MAX_TOKENS];
@@ -81,6 +86,8 @@ int encode_prompt(const char *prompt, bool first_turn)
     if (!first_turn) {
         tokens[start++] = tokenizer.eos_id;
         start = encode("\n", start);
+    } else if (header[0] != '\0') {
+        start = encode(header, 0);
     }
 
     // The turn is tokenized in one go, the way the model was trained on it:
@@ -176,6 +183,17 @@ void set_temperature(float temperature)
     sampler.temperature = temperature;
 }
 
+void set_name(const char *name)
+{
+    if (name[0] == '\0') {
+        header[0] = '\0';
+    } else {
+        snprintf(header, sizeof(header), "Name: %c%s\n", toupper(static_cast<unsigned char>(name[0])), name + 1);
+    }
+    // The name cannot change in the middle of a conversation
+    pos = 0;
+}
+
 void reset()
 {
     pos = 0;
@@ -190,16 +208,27 @@ Stats generate(const char *prompt, const Sink &sink)
     int n = encode_prompt(prompt, pos == 0);
     if (pos + n + MIN_REPLY > seq_len) {
         // Out of positions: start over with just the last few turns
-        const int budget = std::min(KEEP_TOKENS, seq_len - MIN_REPLY - n - 2);
+        const int header_len = header[0] != '\0' ? encode(header, 0) : 0;
+        const int budget = std::min(KEEP_TOKENS, seq_len - MIN_REPLY - n - header_len - 2);
         const int keep_from = recent_turns_start(budget);
         const int kept = pos - keep_from;
-        memmove(context, context + keep_from, kept * sizeof(context[0]));
-        pos = 0;
-        while (pos < kept) {
-            feed(context[pos], false);
+        // The header stays where it is, in front of what is kept
+        static int recent[MAX_SEQ_LEN];
+        for (int i = 0; i < kept; i++) {
+            recent[i] = context[keep_from + i];
         }
-        stats.prompt_tokens += kept;
-        n = encode_prompt(prompt, pos == 0);
+        pos = 0;
+        if (kept > 0) {
+            for (int i = 0; i < header_len; i++) {
+                feed(tokens[i], false);
+            }
+            for (int i = 0; i < kept; i++) {
+                feed(recent[i], false);
+            }
+            stats.prompt_tokens += header_len + kept;
+        }
+        // With nothing kept this is a first turn again, header included
+        n = encode_prompt(prompt, kept == 0);
     }
     stats.prompt_tokens += n;
 
