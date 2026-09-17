@@ -1,0 +1,11 @@
+menu "s3r-llm"
+
+    config S3R_DISPLAY_ROTATION
+        int "Display rotation, in steps of 90 degrees clockwise"
+        range 0 3
+        default 0
+        help
+            0 is upright with the USB port at the bottom. To stand the device
+            on its left side, turn the image the other way with 3.
+
+endmenu

@@ -3,6 +3,7 @@
 #include <cassert>
 #include <cstring>
 
+#include "sdkconfig.h"
 #include "driver/gpio.h"
 #include "driver/i2c_master.h"
 #include "driver/spi_master.h"
@@ -30,9 +31,28 @@ constexpr gpio_num_t PIN_DC = GPIO_NUM_42;
 constexpr gpio_num_t PIN_RST = GPIO_NUM_48;
 constexpr spi_host_device_t LCD_HOST = SPI2_HOST;
 constexpr unsigned int LCD_CLOCK_HZ = 40 * 1000 * 1000;
-// Position of the 128x128 glass inside the controller's 132x132 GRAM window
-constexpr int OFFSET_X = 2;
-constexpr int OFFSET_Y = 3;
+// How the image is turned, in steps of 90 degrees clockwise. 0 is upright
+// with the USB port at the bottom.
+constexpr int ROTATION = CONFIG_S3R_DISPLAY_ROTATION;
+
+// MADCTL (with the BGR bit) and the position of the 128x128 glass inside the
+// controller's 132x132 GRAM, which depends on the scan direction. The panel is
+// mounted upside down, so upright is both axes mirrored.
+struct Orientation
+{
+    uint8_t madctl;
+    int offset_x;
+    int offset_y;
+};
+constexpr Orientation ORIENTATIONS[] = {
+    {0xC8, 2, 3}, // MX | MY
+    {0xA8, 3, 2}, // MV | MY
+    {0x08, 2, 1},
+    {0x68, 1, 2}, // MV | MX
+};
+constexpr Orientation ORIENTATION = ORIENTATIONS[ROTATION];
+constexpr int OFFSET_X = ORIENTATION.offset_x;
+constexpr int OFFSET_Y = ORIENTATION.offset_y;
 
 // Backlight (LP5562)
 constexpr uint16_t LP5562_ADDR = 0x30;
@@ -77,7 +97,7 @@ constexpr InitCmd INIT_CMDS[] = {
     {0xE0, 16, {0x02, 0x1C, 0x07, 0x12, 0x37, 0x32, 0x29, 0x2D, 0x29, 0x25, 0x2B, 0x39, 0x00, 0x01, 0x03, 0x10}, 0}, // gamma +
     {0xE1, 16, {0x03, 0x1D, 0x07, 0x06, 0x2E, 0x2C, 0x29, 0x2D, 0x2E, 0x2E, 0x37, 0x3F, 0x00, 0x00, 0x02, 0x10}, 0}, // gamma -
     {0x3A, 1, {0x05}, 0},                                 // 16 bit/pixel
-    {0x36, 1, {0xC8}, 0},                                 // mounted upside down, BGR
+    {0x36, 1, {ORIENTATION.madctl}, 0},                   // scan direction, BGR
     {0x21, 0, {}, 0},                                     // inversion on
     {0x13, 0, {}, 10},                                    // normal display mode
 };
