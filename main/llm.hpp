@@ -19,7 +19,11 @@ struct Stats
     int reply_ms;
 };
 
+constexpr float DEFAULT_TEMPERATURE = 0.8f;
+
 void init();
+// Takes effect with the next token, also in the middle of a reply.
+void set_temperature(float temperature);
 // Blocks until the reply to prompt is complete.
 Stats generate(const char *prompt, const Sink &sink);
 

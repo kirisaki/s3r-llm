@@ -13,6 +13,7 @@
 #include "freertos/task.h"
 
 #include "font5x7.hpp"
+#include "i2c_bus.hpp"
 
 namespace display
 {
@@ -34,8 +35,6 @@ constexpr int OFFSET_X = 2;
 constexpr int OFFSET_Y = 3;
 
 // Backlight (LP5562)
-constexpr gpio_num_t PIN_SDA = GPIO_NUM_45;
-constexpr gpio_num_t PIN_SCL = GPIO_NUM_0;
 constexpr uint16_t LP5562_ADDR = 0x30;
 constexpr uint8_t LP5562_REG_ENABLE = 0x00;
 constexpr uint8_t LP5562_REG_CONFIG = 0x08;
@@ -91,21 +90,11 @@ void lp5562_write(uint8_t reg, uint8_t value)
 
 void init_backlight()
 {
-    i2c_master_bus_config_t bus_config = {};
-    bus_config.i2c_port = -1;
-    bus_config.sda_io_num = PIN_SDA;
-    bus_config.scl_io_num = PIN_SCL;
-    bus_config.clk_source = I2C_CLK_SRC_DEFAULT;
-    bus_config.glitch_ignore_cnt = 7;
-    bus_config.flags.enable_internal_pullup = true;
-    i2c_master_bus_handle_t bus = nullptr;
-    ESP_ERROR_CHECK(i2c_new_master_bus(&bus_config, &bus));
-
     i2c_device_config_t dev_config = {};
     dev_config.dev_addr_length = I2C_ADDR_BIT_LEN_7;
     dev_config.device_address = LP5562_ADDR;
     dev_config.scl_speed_hz = 400 * 1000;
-    ESP_ERROR_CHECK(i2c_master_bus_add_device(bus, &dev_config, &backlight));
+    ESP_ERROR_CHECK(i2c_master_bus_add_device(i2c_bus::get(), &dev_config, &backlight));
 
     lp5562_write(LP5562_REG_ENABLE, 0x40); // chip enable
     vTaskDelay(pdMS_TO_TICKS(1));

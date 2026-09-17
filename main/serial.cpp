@@ -17,6 +17,8 @@ constexpr TickType_t WRITE_TIMEOUT = pdMS_TO_TICKS(20);
 
 // Last byte received, kept across lines to tell the LF of a CRLF from an empty line
 char prev = '\0';
+// Length of the line being entered
+size_t line_len = 0;
 
 void write_bytes(const char *data, size_t len)
 {
@@ -35,13 +37,17 @@ void init()
     usb_serial_jtag_vfs_use_driver();
 }
 
-size_t read_line(char *buf, size_t size)
+bool poll_line(char *buf, size_t size, int timeout_ms)
 {
-    size_t len = 0;
+    const TickType_t start = xTaskGetTickCount();
     for (;;) {
+        const TickType_t elapsed = xTaskGetTickCount() - start;
+        if (elapsed >= pdMS_TO_TICKS(timeout_ms)) {
+            return false;
+        }
         char c;
-        if (usb_serial_jtag_read_bytes(&c, 1, portMAX_DELAY) != 1) {
-            continue;
+        if (usb_serial_jtag_read_bytes(&c, 1, pdMS_TO_TICKS(timeout_ms) - elapsed) != 1) {
+            return false;
         }
         const bool lf_of_crlf = c == '\n' && prev == '\r';
         prev = c;
@@ -51,22 +57,28 @@ size_t read_line(char *buf, size_t size)
         }
         if (c == '\r' || c == '\n') {
             write_bytes("\r\n", 2);
-            buf[len] = '\0';
-            return len;
+            buf[line_len] = '\0';
+            line_len = 0;
+            return true;
         }
         if (c == '\b' || c == 0x7F) {
-            if (len > 0) {
-                len--;
+            if (line_len > 0) {
+                line_len--;
                 write_bytes("\b \b", 3);
             }
             continue;
         }
-        if (c < 0x20 || c > 0x7E || len + 1 >= size) {
+        if (c < 0x20 || c > 0x7E || line_len + 1 >= size) {
             continue;
         }
-        buf[len++] = c;
+        buf[line_len++] = c;
         write_bytes(&c, 1);
     }
+}
+
+bool typing()
+{
+    return line_len > 0;
 }
 
 void write(const char *text)

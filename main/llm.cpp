@@ -21,7 +21,6 @@ namespace
 
 constexpr char TAG[] = "llm";
 
-constexpr float TEMPERATURE = 0.8f;
 constexpr float TOP_P = 0.9f;
 // Positions that have to be left for the reply, or the conversation starts over
 constexpr int MIN_REPLY = 48;
@@ -120,11 +119,16 @@ void init()
         ESP_LOGE(TAG, "no usable model in flash, run `idf.py tokenizer-flash model-flash`");
         abort();
     }
-    llm_build_sampler(&sampler, transformer.config.vocab_size, TEMPERATURE, TOP_P, esp_random());
+    llm_build_sampler(&sampler, transformer.config.vocab_size, DEFAULT_TEMPERATURE, TOP_P, esp_random());
 
     const Config &c = transformer.config;
     ESP_LOGI(TAG, "dim=%d layers=%d heads=%d vocab=%d seq_len=%d kv=%d", c.dim, c.n_layers, c.n_heads,
              c.vocab_size, c.seq_len, transformer.kv_seq_len);
+}
+
+void set_temperature(float temperature)
+{
+    sampler.temperature = temperature;
 }
 
 Stats generate(const char *prompt, const Sink &sink)

@@ -10,6 +10,14 @@ parameter GPT-Neo fine-tuned for small talk, quantized to 4 bits (5.7MB). It
 knows about as much as a kindergartener and says "I don't know" a lot. It
 remembers the conversation for up to 256 tokens and then starts over.
 
+The accelerometer has a say as well:
+
+- Shaking the device raises the sampling temperature, also in the middle of a
+  reply. The harder the shake, the more the reply turns into word salad, and
+  the redder it is drawn.
+- Shaking it or turning it face down while it is idle tells the model so, as
+  if the user had typed "I am shaking you!".
+
 ## Requirements
 
 - M5Stack AtomS3R
@@ -39,6 +47,8 @@ from [`sdkconfig.defaults`](sdkconfig.defaults).
 - [`components/cardputer_llm`](components/cardputer_llm), the inference engine
   from [therezor/cardputer-ai](https://github.com/therezor/cardputer-ai), which
   is MIT licensed.
+- [`components/bmi270_config`](components/bmi270_config), the configuration
+  file of the BMI270 from Bosch Sensortec, which is BSD-3-Clause licensed.
 - The model, which is not part of this repository. `tools/fetch_model.sh`
   downloads the pre-quantized weights from cardputer-ai; TinyTalk 2 is licensed
   [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/).

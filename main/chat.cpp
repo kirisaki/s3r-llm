@@ -146,6 +146,12 @@ void append(const char *text)
     display::flush();
 }
 
+void append(const char *text, uint16_t text_color)
+{
+    color = text_color;
+    append(text);
+}
+
 void add(Speaker speaker, const char *text)
 {
     begin(speaker);
