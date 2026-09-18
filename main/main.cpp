@@ -180,7 +180,6 @@ void wifi_command(char *args)
 // A talk with another device. This one keeps it going on its own: it sends
 // what it says to the API of the other one, and answers what comes back. The
 // other device needs to know nothing about it.
-constexpr int TALK_MAX_TURNS = 20;
 constexpr TickType_t TALK_PAUSE = pdMS_TO_TICKS(1500);
 constexpr float TALK_LOOP_BOOST = 0.7f;
 
@@ -193,7 +192,6 @@ struct Talk
     char line[256];
     char said_before[256];
     char heard_before[256];
-    int turns = 0;
     TickType_t next_turn = 0;
 };
 Talk talk;
@@ -301,7 +299,6 @@ void talk_turn()
         strlcpy(talk.line, line, sizeof(talk.line));
     }
 
-    talk.turns++;
     talk.next_turn = xTaskGetTickCount() + TALK_PAUSE;
     if (interrupt == Interrupt::New) {
         stop_talk("stopped");
@@ -314,8 +311,6 @@ void talk_turn()
         stop_talk("lost the other one");
     } else if (heard[0] == '\0' || talk.line[0] == '\0') {
         stop_talk("nothing more to say");
-    } else if (talk.turns >= TALK_MAX_TURNS) {
-        stop_talk("that will do");
     }
 }
 

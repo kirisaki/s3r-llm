@@ -108,7 +108,8 @@ Two devices can talk to each other with nothing in between:
 
 on the serial port of `alice` (or `POST /talk` with `bob Do you like dogs?` as
 the body) makes her say the opening line to `bob` and keep answering whatever
-comes back, for up to 20 turns. The other device is given by name or address.
+comes back, for as long as they are left to. The other device is given by name
+or address.
 Each screen shows the conversation from its own side.
 
 `/stop`, `POST /stop`, the button, or anything else said to either device ends
